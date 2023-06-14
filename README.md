@@ -46,4 +46,4 @@ Contributions are welcome! Feel free to create a new issue for bugs or feature r
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for more information.
+This project is licensed under the GNU GPLv3.0 License. See [LICENSE](LICENSE) for more information.
