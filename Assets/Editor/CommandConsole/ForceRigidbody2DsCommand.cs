@@ -12,8 +12,8 @@ public class ForceRigidbody2DsCommand : ConsoleCommand
 	
 	public override void Execute(params string[] args)
 	{
-		float forceMagnitude = 10f;
-		if (args.Length > 0 && !float.TryParse(args[1], out forceMagnitude)) {
+		float forceMagnitude = 200f;
+		if (args.Length > 0 && !float.TryParse(args[0], out forceMagnitude)) {
 			Console.AddLine("failed to parse force value argument, using default force");
 			forceMagnitude = 10f;
 		}
