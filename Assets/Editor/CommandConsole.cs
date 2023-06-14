@@ -1,24 +1,31 @@
-using System.Collections;
 using System.Collections.Generic;
-using Random = UnityEngine.Random;
 using UnityEngine;
 using UnityEditor;
 using System;
-
+using System.Linq;
+using System.Reflection;
 
 /// <summary> A simple console command interface. The window can be toggled with hotkey Ctrl+Shift+Q </summary>
 [ExecuteAlways]
 public class CommandConsole : EditorWindow
 {
 
+	/// <summary> Wrapper for custom GUIStyles to ensure they are initialized from the correct thread when used in OnGUI. </summary>
+	private static class Styles
+	{
+		public static GUIStyle Monospace;
+		static Styles() { 
+			Monospace = new GUIStyle(EditorStyles.textArea) {
+				font = EditorGUIUtility.Load("Fonts/RobotoMono/RobotoMono-Regular.ttf") as Font,
+				alignment = TextAnchor.LowerLeft
+			};
+		}
+	}
+
 	#region Fields and Properties
 
-	/// <summary> A dictionary of all available commands </summary>
-	private Dictionary<string, Action<string[]>> commandDictionary;
-	/// <summary> A dictionary of all running coroutines </summary>
-	private Dictionary<string, Coroutine> coroutines = new Dictionary<string, Coroutine>();
-	/// <summary> A dictionary of all available toggle coroutines </summary>
-	private Dictionary<string, IEnumerator> toggleCoroutines = new Dictionary<string, IEnumerator>();
+	/// <summary> A list of all available commands </summary>
+	private List<ConsoleCommand> commands;
 	
 	/// <summary> The text for the command entry field </summary>
 	private string command = "";
@@ -26,13 +33,13 @@ public class CommandConsole : EditorWindow
 	private string output = "";
 	/// <summary> The scroll position for the text area </summary>
 	private Vector2 scrollPosition;
-	/// <summary> Monospace text area GUIStyle </summary>
-	private GUIStyle monospaceStyle;
+	/// <summary> The padding for help text between the command trigger and the help message. </summary>
+	private int padding = 4;
 
 	/// <summary> The name of the command entry field </summary>
 	private const string k_CommandFieldControlName = "CommandEntryField";
 	/// <summary> Whether the command entry field wants focus </summary>
-	private bool commandFieldWantsFocus;
+	private bool commandFieldWantsFocus = true;
 	/// <summary> Whether the command entry field has focus </summary>
 	private bool CommandFieldHasFocus => GUI.GetNameOfFocusedControl() == k_CommandFieldControlName;
 
@@ -46,36 +53,37 @@ public class CommandConsole : EditorWindow
 	/// <summary> Initializes the window </summary>
 	private void Init()
 	{
+				
+		commands?.Clear();
+		commands = new List<ConsoleCommand>();
+
+		// Automatically populate commands list with all subclasses of ConsoleCommand
+
+		// Get all types in the current assembly.
+		Type[] types = Assembly.GetExecutingAssembly().GetTypes();
+		foreach (Type type in types) {
+			// Check if the type is a subclass of ConsoleCommand, and if it is not abstract.
+			if (type.IsSubclassOf(typeof(ConsoleCommand)) && !type.IsAbstract) {
+				// Create an instance of the type and add it to the list of commands.
+				ConsoleCommand instance = (ConsoleCommand)Activator.CreateInstance(type, new object[] { this });
+				commands.Add(instance);
+			}
+		}
+		// Sort the commands alphabetically by trigger
+		commands = commands.OrderBy(c => c.Trigger).ToList();
+
+		// calculate the padding for the help text
+		foreach (var command in commands) {
+			padding = Mathf.Max(padding, $"{command.Trigger} {command.ArgHelpText}".Length + 4);
+		}
+
 		if (output == "") { Help(); }
-		commandDictionary = new Dictionary<string, Action<string[]>>
-		{
-			{ "help", _ => Help() },
-			{ "clear",_ => Clear() },
-			{ "timescale",		Timescale },
-			{ "gravity",		Gravity },
-			{ "explode",		ApplyForceToRigidbodies },
-			{ "joints",			ToggleTrackedCoroutine },
-			{ "velocity",		ToggleTrackedCoroutine },
-		};
-		toggleCoroutines = new Dictionary<string, IEnumerator>
-		{
-			{ "joints",			VisualizeJointsCoroutine() },
-			{ "velocity",		VisualizeVelocityCoroutine() },
-		};
+
 	}
 	
 
 	void OnGUI()
 	{
-
-		// if the monospace style is null, create it
-		if (monospaceStyle == null) { 
-			monospaceStyle = new GUIStyle(EditorStyles.textArea) { 
-				font = EditorGUIUtility.Load("Fonts/RobotoMono/RobotoMono-Regular.ttf") as Font,
-				alignment = TextAnchor.LowerLeft
-			};
-			commandFieldWantsFocus = true;
-		}
 
 		// handle page up/down keys
 		if (hasFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.PageUp  ) { scrollPosition -= new Vector2(0f, EditorGUIUtility.singleLineHeight); Repaint(); }
@@ -83,7 +91,7 @@ public class CommandConsole : EditorWindow
 
 		// display the text area for the output
 		scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-		EditorGUILayout.LabelField(output, monospaceStyle, GUILayout.ExpandHeight(true));
+		EditorGUILayout.LabelField(output, Styles.Monospace, GUILayout.ExpandHeight(true));
 		EditorGUILayout.EndScrollView();
 
 		// focus the search field when window has focus and tab is pressed
@@ -96,7 +104,7 @@ public class CommandConsole : EditorWindow
 
 		// command field
 		GUI.SetNextControlName(k_CommandFieldControlName);
-		command = EditorGUILayout.TextField(command, monospaceStyle, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+		command = EditorGUILayout.TextField(command, Styles.Monospace, GUILayout.Height(EditorGUIUtility.singleLineHeight));
 
 		// focus handling
 		if (commandFieldWantsFocus && Event.current.type == EventType.Repaint) {
@@ -109,7 +117,7 @@ public class CommandConsole : EditorWindow
 	
 
 	/// <summary> Adds a line to the output </summary>
-	private void AddLine(string line = "")
+	public void AddLine(string line = "")
 	{
 		if (string.IsNullOrWhiteSpace(line)) { line = ""; }
 		if (!string.IsNullOrWhiteSpace(output)) {
@@ -144,127 +152,28 @@ public class CommandConsole : EditorWindow
 	/// <summary> Try to execute the command </summary>
 	public void TryExecuteCommand(string command)
 	{
-		string[] args = command.Split(' ');
-		try {
-			if (args.Length > 0 && commandDictionary.TryGetValue(args[0], out Action<string[]> commandFunction)) {
-				commandFunction(args); return;
-			}
-		} catch (Exception e) { Debug.Log($"command: {command ?? "NULL"}"); Debug.LogException(e); }
-		AddLine("Unknown command - type 'help' for a list of available commands");
+		
+		if (command == "help") { Help(); return; }
+
+		List<string> args = command.Split(' ').ToList();
+		string trigger = args[0]; args.RemoveAt(0);
+		
+		ConsoleCommand consoleCommand = commands.FirstOrDefault(c => c.Trigger == trigger);
+		if (consoleCommand != null) { consoleCommand.Execute(args.ToArray()); }
+		else { AddLine("Unknown command - type 'help' for a list of available commands"); }
+
 	}
 
-
-	#region Commands
-	
 	/// <summary> Clears the command console output </summary>
-	private void Clear() { output = ""; }
+	public void Clear() { output = ""; }
 
 	/// <summary> Lists all available commands </summary>
 	private void Help()
 	{
-		AddLine("help\t\t\t\tdisplays a list of available commands");
-		AddLine("clear\t\t\t\tclears the console");
-		AddLine("timescale [value (optional float)]\tdisplays or sets the timescale");
-		AddLine("gravity [force (optional float)]\tdisplays or sets the gravity force");
-		AddLine("explode [force (optional float)]\tapplies a randomized force to all Rigidbody2Ds");
-		AddLine("joints\t\t\t\ttoggle debug visualization of Rigidbody2D joints");
-		AddLine("velocity\t\t\ttoggle debug visualization of Rigidbody2D velocities");
-	}
-
-	/// <summary> Displays or sets the timescale </summary>
-	private void Timescale(params string[] args)
-	{
-		if (args.Length == 1) { 
-			AddLine("timescale: " + Time.timeScale); 
-			return; 
-		}
-		try {
-			Time.timeScale = float.Parse(args[1]);
-			AddLine("timescale set to " + Time.timeScale);
-		}
-		catch { AddLine("failed to parse argument"); }
-	}
-
-	/// <summary> Displays or sets the gravity force </summary>
-	private void Gravity(params string[] args)
-	{
-		if (args.Length == 1) { 
-			AddLine("gravity: " + Physics2D.gravity.y); 
-			return; 
-		}
-		try {
-			Physics2D.gravity = new Vector2(0, float.Parse(args[1]));
-			AddLine("gravity set to " + Physics2D.gravity.y);
-		}
-		catch { AddLine("failed to parse argument"); }
-	}
-
-	/// <summary> Applies a randomized force to all Rigidbody2Ds </summary>
-	private void ApplyForceToRigidbodies(params string[] args)
-	{
-		float forceMagnitude = 10f;
-		if (args.Length > 1) { 
-			try { forceMagnitude = float.Parse(args[1]); } 
-			catch { AddLine("failed to parse force value argument, using default force"); } 
-		}
-
-		Rigidbody2D[] allRigidbodies = FindObjectsByType<Rigidbody2D>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-		foreach (Rigidbody2D body in allRigidbodies) {
-			if (body.bodyType == RigidbodyType2D.Dynamic) {
-				body.AddForce(new Vector2(Random.Range(-1f, 1f), Random.Range(-1f, 1f)) * forceMagnitude);
-			}
-		}
-
-		AddLine("applied force to " + allRigidbodies.Length + " Rigidbody2D objects");
-	}
-
-	/// <summary> Toggles the coroutine with the given key if it exists </summary>
-	public void ToggleTrackedCoroutine(params string[] args)
-	{		
-		if (args == null || args.Length == 0 || string.IsNullOrWhiteSpace(args[0])) { 
-			AddLine("unable to toggle coroutine"); 
-			return; 
-		}
-		string key = args[0];
-
-		if (coroutines.ContainsKey(key)) {
-			CoroutineUtil.Stop(coroutines[key]);
-			coroutines.Remove(key);
-			AddLine($"{key} coroutine stopped"); 
-			return;
-		}
-		else if (toggleCoroutines.TryGetValue(key, out IEnumerator coroutine)) {
-			coroutines.Add(key, CoroutineUtil.Start(coroutine));
-			AddLine($"{key} coroutine started"); 
-			return;
-		}
-		else { AddLine("unable to toggle coroutine"); }
-	}
-
-	/// <summary> A coroutine that visualizes all Rigidbody2D joints </summary>
-	private IEnumerator VisualizeJointsCoroutine()
-	{
-		while (true) {
-			foreach (AnchoredJoint2D joint in FindObjectsByType<AnchoredJoint2D>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)) {
-				if (!joint.connectedBody) { continue; }
-				Debug.DrawLine(joint.transform.position, joint.connectedBody.transform.TransformPoint(joint.connectedAnchor), Color.green, Time.fixedDeltaTime);
-			}
-			yield return CoroutineUtil.WaitForFixedUpdate;
+		AddLine($"help {new string(' ', padding - 5)}displays a list of available commands");
+		foreach (ConsoleCommand item in commands) { 
+			AddLine($"{item.Trigger} {item.ArgHelpText}{new string(' ', padding - $"{item.Trigger} {item.ArgHelpText}".Length)}{item.HelpText}");
 		}
 	}
-
-	/// <summary> A coroutine that visualizes all Rigidbody2D velocities </summary>
-	private IEnumerator VisualizeVelocityCoroutine()
-	{
-		while (true) {
-			foreach (Rigidbody2D body in FindObjectsByType<Rigidbody2D>(FindObjectsInactive.Exclude, FindObjectsSortMode.None)) {
-				Debug.DrawLine(body.transform.position, body.transform.position + (Vector3)body.velocity, 
-					Color.Lerp(Color.green, Color.red, body.velocity.magnitude / 20f), Time.fixedDeltaTime);
-			}
-			yield return CoroutineUtil.WaitForFixedUpdate;
-		}
-	}
-
-	#endregion
 
 }
