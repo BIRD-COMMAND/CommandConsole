@@ -7,6 +7,7 @@ Unity Command Console is a powerful in-editor command console for Unity. It allo
 
 - Simple, intuitive, and easy to use
 - Provides a mechanism for creating custom commands
+- Custom command classes in the Editor assembly are automatically detected
 - Supports long-running commands with coroutine-based implementations
 - Automatic formatting of help text for commands
 
@@ -29,13 +30,13 @@ To create a custom command, create a new class that inherits from `ConsoleComman
 ```csharp
 public class MyCommand : ConsoleCommand {
 	
-	public MyCommand(CommandConsole console) : base(console) { }
+    public MyCommand(CommandConsole console) : base(console) { }
     
-	public override string Trigger => "myCommand";
+    public override string Trigger => "myCommand";
     public override string HelpText => "this custom command does something incredible";
     public override string ArgHelpText => "[argument1 description] [argument2 description]...";
     
-	public override void Execute(params string[] args) { /* Command logic here */ }
+    public override void Execute(params string[] args) { /* Command logic here */ }
 
 }
 ```
@@ -46,4 +47,4 @@ Contributions are welcome! Feel free to create a new issue for bugs or feature r
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for more information.
+This project is licensed under the GNU GPLv3.0 License. See [LICENSE](LICENSE) for more information.
