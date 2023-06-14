@@ -7,6 +7,7 @@ Unity Command Console is a powerful in-editor command console for Unity. It allo
 
 - Simple, intuitive, and easy to use
 - Provides a mechanism for creating custom commands
+- Custom command classes in the Editor assembly are automatically detected
 - Supports long-running commands with coroutine-based implementations
 - Automatic formatting of help text for commands
 
