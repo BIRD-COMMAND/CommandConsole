@@ -29,13 +29,13 @@ To create a custom command, create a new class that inherits from `ConsoleComman
 ```csharp
 public class MyCommand : ConsoleCommand {
 	
-	public MyCommand(CommandConsole console) : base(console) { }
+    public MyCommand(CommandConsole console) : base(console) { }
     
-	public override string Trigger => "myCommand";
+    public override string Trigger => "myCommand";
     public override string HelpText => "this custom command does something incredible";
     public override string ArgHelpText => "[argument1 description] [argument2 description]...";
     
-	public override void Execute(params string[] args) { /* Command logic here */ }
+    public override void Execute(params string[] args) { /* Command logic here */ }
 
 }
 ```
