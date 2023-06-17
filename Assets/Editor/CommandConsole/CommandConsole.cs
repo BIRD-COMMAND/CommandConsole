@@ -1,9 +1,9 @@
-using System.Collections.Generic;
-using UnityEngine;
-using UnityEditor;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using UnityEditor;
+using UnityEngine;
 
 /// <summary> A simple console command interface. The window can be toggled with hotkey Ctrl+Shift+Q </summary>
 [ExecuteAlways]
@@ -26,7 +26,13 @@ public class CommandConsole : EditorWindow
 
 	/// <summary> A list of all available commands </summary>
 	private List<ConsoleCommand> commands;
-	
+	// A list to store the command history.
+	private List<string> commandHistory = new List<string>();
+	// An integer to keep track of the current index in the command history.
+	private int commandHistoryIndex = 0;
+	// A string to store partial command text
+	private string partialCommand = "";
+
 	/// <summary> The text for the command entry field </summary>
 	private string command = "";
 	/// <summary> The text for the output area </summary>
@@ -95,22 +101,61 @@ public class CommandConsole : EditorWindow
 		EditorGUILayout.EndScrollView();
 
 		// focus the search field when window has focus and tab is pressed
-		if (hasFocus && !CommandFieldHasFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Tab) { commandFieldWantsFocus = true; }
+		if (hasFocus && !CommandFieldHasFocus) { commandFieldWantsFocus = true; }
 
-		// handle enter key (otherwise it will be consumed by the text field and unfocus)
-		if (CommandFieldHasFocus && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Return) {
-			commandFieldWantsFocus = true; ReceiveCommand(command); command = ""; Event.current.Use();
+		// handle certain key events (otherwise they will be consumed by the text field and potentially unfocus)
+		if (hasFocus && Event.current.type == EventType.KeyDown) {
+			
+			// handle enter key to submit command
+			if (Event.current.keyCode == KeyCode.Return) { 
+				ReceiveCommand(command); command = ""; partialCommand = "";
+				GUI.FocusControl(null); commandFieldWantsFocus = true; Event.current.Use();
+			}
+
+			// handle up key to cycle through command history
+			else if (Event.current.keyCode == KeyCode.UpArrow) {
+				
+				GUI.FocusControl(null); commandFieldWantsFocus = true; Event.current.Use();
+
+				// decrement the command history index and set the command to the previous command
+				if (commandHistoryIndex > 0) { command = commandHistory[--commandHistoryIndex]; }
+
+			}
+
+			// handle down key to cycle through command history
+			else if (Event.current.keyCode == KeyCode.DownArrow) {
+				
+				GUI.FocusControl(null); commandFieldWantsFocus = true; Event.current.Use();
+
+				// restore the command from the saved partial command text or set the command to the next command
+				if (commandHistoryIndex < commandHistory.Count - 1) { 
+					command = commandHistory[++commandHistoryIndex];
+				} else { 
+					command = partialCommand;
+					commandHistoryIndex = commandHistory.Count;
+				}
+
+			}
+
+		}
+
+		// disallow up/down arrow keys in the command field
+		if (hasFocus && Event.current.type == EventType.KeyDown && (Event.current.keyCode == KeyCode.UpArrow || Event.current.keyCode == KeyCode.DownArrow)) {
+			Repaint();
 		}
 
 		// command field
 		GUI.SetNextControlName(k_CommandFieldControlName);
 		command = EditorGUILayout.TextField(command, Styles.Monospace, GUILayout.Height(EditorGUIUtility.singleLineHeight));
 
+		// save the current partial command text
+		if (commandHistoryIndex == commandHistory.Count) { partialCommand = command; }
+
 		// focus handling
 		if (commandFieldWantsFocus && Event.current.type == EventType.Repaint) {
 			GUI.FocusControl(k_CommandFieldControlName);
 			EditorGUIUtility.editingTextField = true;
-			commandFieldWantsFocus = false;
+			commandFieldWantsFocus = false;			
 		}
 
 	}
@@ -138,6 +183,8 @@ public class CommandConsole : EditorWindow
 
 		// if the command is not empty, execute it
 		else {
+			// add the command to the command history and reset the command history index
+			commandHistory.Add(command); commandHistoryIndex = commandHistory.Count;
 			// add the command to the output
 			AddLine(command);
 			// try to execute the command
@@ -145,8 +192,7 @@ public class CommandConsole : EditorWindow
 		}
 
 		// automatically scroll down to newest entry and repaint
-		scrollPosition = new Vector2(scrollPosition.x, float.MaxValue); 
-		Repaint();
+		scrollPosition = new Vector2(scrollPosition.x, float.MaxValue);
 	}
 
 	/// <summary> Try to execute the command </summary>
